@@ -29,7 +29,7 @@ def respond():
    # here call your smart reply message
    reply = generate_smart_reply(text)
    bot.sendMessage(chat_id=chat_id, text=reply, reply_to_message_id=msg_id)
-   telebot.conversation.main()
+   
    # the first time you chat with the bot AKA the welcoming message
    if text == "/start":
        # print the welcoming message
@@ -40,6 +40,7 @@ def respond():
        bot.sendChatAction(chat_id=chat_id, action="typing")
        sleep(1.5)
        bot.sendMessage(chat_id=chat_id, text=bot_welcome, reply_to_message_id=msg_id)
+       telebot.conversation.main()
 
 
    else:
