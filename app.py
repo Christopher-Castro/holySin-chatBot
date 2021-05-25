@@ -1,161 +1,82 @@
-  
-#!/usr/bin/env python
-# pylint: disable=C0116
-# This program is dedicated to the public domain under the CC0 license.
-
-"""
-First, a few callback functions are defined. Then, those functions are passed to
-the Dispatcher and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
-Usage:
-Example of a bot-user conversation using ConversationHandler.
-Send /start to initiate the conversation.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
-
-import logging
-
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
-from telegram.ext import (
-    Updater,
-    CommandHandler,
-    MessageHandler,
-    Filters,
-    ConversationHandler,
-    CallbackContext,
-)
-
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
-
-logger = logging.getLogger(__name__)
-
-GENDER, PHOTO, LOCATION, BIO = range(4)
+import re
+from time import sleep
+from flask import Flask, request
+import telegram
+import telebot.conversation
+from telebot.ai import generate_smart_reply
+from telebot.credentials import bot_token, bot_user_name,URL
 
 
-def start(update: Update, _: CallbackContext) -> int:
-    reply_keyboard = [['Boy', 'Girl', 'Other']]
+global bot
+global TOKEN
+TOKEN = bot_token
+bot = telegram.Bot(token=TOKEN)
 
-    update.message.reply_text(
-        'Hi! My name is Professor Bot. I will hold a conversation with you. '
-        'Send /cancel to stop talking to me.\n\n'
-        'Are you a boy or a girl?',
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True),
-    )
+app = Flask(__name__)
 
-    return GENDER
+@app.route('/{}'.format(TOKEN), methods=['POST'])
+def respond():
+   # retrieve the message in JSON and then transform it to Telegram object
+   update = telegram.Update.de_json(request.get_json(force=True), bot)
 
+   chat_id = update.message.chat.id
+   msg_id = update.message.message_id
 
-def gender(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("Gender of %s: %s", user.first_name, update.message.text)
-    update.message.reply_text(
-        'I see! Please send me a photo of yourself, '
-        'so I know what you look like, or send /skip if you don\'t want to.',
-        reply_markup=ReplyKeyboardRemove(),
-    )
-
-    return PHOTO
-
-
-def photo(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    photo_file = update.message.photo[-1].get_file()
-    photo_file.download('user_photo.jpg')
-    logger.info("Photo of %s: %s", user.first_name, 'user_photo.jpg')
-    update.message.reply_text(
-        'Gorgeous! Now, send me your location please, or send /skip if you don\'t want to.'
-    )
-
-    return LOCATION
-
-
-def skip_photo(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("User %s did not send a photo.", user.first_name)
-    update.message.reply_text(
-        'I bet you look great! Now, send me your location please, or send /skip.'
-    )
-
-    return LOCATION
+   # Telegram understands UTF-8, so encode text for unicode compatibility
+   text = update.message.text.encode('utf-8').decode()
+   # for debugging purposes only
+   print("got text message :", text)
+   # here call your smart reply message
+   reply = generate_smart_reply(text)
+   bot.sendMessage(chat_id=chat_id, text=reply, reply_to_message_id=msg_id)
+   
+   # the first time you chat with the bot AKA the welcoming message
+   if text == "/start":
+       # print the welcoming message
+    #    bot_welcome = """
+    #    Welcome to coolAvatar bot, the bot is using the service from http://avatars.adorable.io/ to generate cool looking avatars based on the name you enter so please enter a name and the bot will reply with an avatar for your name.
+    #    """
+       bot_welcome = """
+       Bien venido!! Holy Sin te saluda!!.
+       Con la ayuda de este bot puedes realizar tus pedidos.
+       """
+       # send the welcoming message
+       bot.sendChatAction(chat_id=chat_id, action="typing")
+       sleep(1.5)
+       bot.sendMessage(chat_id=chat_id, text=bot_welcome, reply_to_message_id=msg_id)
+       telebot.conversation.main()
+       
 
 
-def location(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    user_location = update.message.location
-    logger.info(
-        "Location of %s: %f / %f", user.first_name, user_location.latitude, user_location.longitude
-    )
-    update.message.reply_text(
-        'Maybe I can visit you sometime! At last, tell me something about yourself.'
-    )
+   else:
+       try:
+           # clear the message we got from any non alphabets
+           text = re.sub(r"\W", "_", text)
+           # create the api link for the avatar based on http://avatars.adorable.io/
+           url = "https://api.adorable.io/avatars/285/{}.png".format(text.strip())
+           # reply with a photo to the name the user sent,
+           # note that you can send photos by url and telegram will fetch it for you
+           bot.sendChatAction(chat_id=chat_id, action="upload_photo")
+           sleep(2)
+           bot.sendPhoto(chat_id=chat_id, photo=url, reply_to_message_id=msg_id)
+       except Exception:
+           # if things went wrong
+           bot.sendMessage(chat_id=chat_id, text="There was a problem in the name you used, please enter different name", reply_to_message_id=msg_id)
 
-    return BIO
+   return 'ok'
 
+@app.route('/set_webhook', methods=['GET', 'POST'])
+def set_webhook():
+   s = bot.setWebhook('{URL}{HOOK}'.format(URL=URL, HOOK=TOKEN))
+   if s:
+       return "webhook setup ok"
+   else:
+       return "webhook setup failed"
 
-def skip_location(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("User %s did not send a location.", user.first_name)
-    update.message.reply_text(
-        'You seem a bit paranoid! At last, tell me something about yourself.'
-    )
-
-    return BIO
-
-
-def bio(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("Bio of %s: %s", user.first_name, update.message.text)
-    update.message.reply_text('Thank you! I hope we can talk again some day.')
-
-    return ConversationHandler.END
-
-
-def cancel(update: Update, _: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("User %s canceled the conversation.", user.first_name)
-    update.message.reply_text(
-        'Bye! I hope we can talk again some day.', reply_markup=ReplyKeyboardRemove()
-    )
-
-    return ConversationHandler.END
-
-
-def main() -> None:
-    # Create the Updater and pass it your bot's token.
-    updater = Updater("1826949178:AAHVTiR033SyJ_zw-VllCvPxJLcqj6uS7A0")
-
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
-
-    # Add conversation handler with the states GENDER, PHOTO, LOCATION and BIO
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            GENDER: [MessageHandler(Filters.regex('^(Boy|Girl|Other)$'), gender)],
-            PHOTO: [MessageHandler(Filters.photo, photo), CommandHandler('skip', skip_photo)],
-            LOCATION: [
-                MessageHandler(Filters.location, location),
-                CommandHandler('skip', skip_location),
-            ],
-            BIO: [MessageHandler(Filters.text & ~Filters.command, bio)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
-
-    dispatcher.add_handler(conv_handler)
-
-    # Start the Bot
-    updater.start_polling()
-
-    # Run the bot until you press Ctrl-C or the process receives SIGINT,
-    # SIGTERM or SIGABRT. This should be used most of the time, since
-    # start_polling() is non-blocking and will stop the bot gracefully.
-    updater.idle()
+@app.route('/')
+def index():
+   return '.'
 
 
 if __name__ == '__main__':
-    main()
+   app.run(threaded=True)
